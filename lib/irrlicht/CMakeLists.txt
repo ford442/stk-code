@@ -1,21 +1,12 @@
 # CMakeLists.txt for Irrlicht in STK
 if(NOT SERVER_ONLY)
-    find_package(PNG REQUIRED)
-    find_package(JPEG REQUIRED)
-    find_package(ZLIB REQUIRED)
+
     include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include/"
-                        "${JPEG_INCLUDE_DIR}"
-                        "${PNG_INCLUDE_DIRS}"
-                        "${ZLIB_INCLUDE_DIR}"
                         "${CMAKE_CURRENT_SOURCE_DIR}/../../src"
                         "${CMAKE_CURRENT_SOURCE_DIR}/../graphics_engine/include")
 else()
     include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include/"
                         "${CMAKE_CURRENT_SOURCE_DIR}/../../src")
-    find_package(ZLIB REQUIRED)
-    include_directories("${ZLIB_INCLUDE_DIR}")
-    add_definitions(-DNO_IRR_COMPILE_WITH_LIBPNG_)
-    add_definitions(-DNO_IRR_COMPILE_WITH_LIBJPEG_)
     add_definitions(-DNO_IRR_COMPILE_WITH_BMP_LOADER_)
     add_definitions(-DNO_IRR_COMPILE_WITH_PNG_LOADER_)
     add_definitions(-DNO_IRR_COMPILE_WITH_JPG_LOADER_)
@@ -29,6 +20,7 @@ else()
     add_definitions(-DNO_IRR_COMPILE_WITH_DIRECT3D_9_)
     add_definitions(-DNO_IRR_COMPILE_WITH_VULKAN_)
 endif()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -sUSE_JPEG=1 -sUSE_LIBPNG=1 -sUSE_ZLIB=1")
 
 if(APPLE AND NOT IOS)
     include_directories("${CMAKE_CURRENT_SOURCE_DIR}/source/Irrlicht/MacOSX" "${CMAKE_CURRENT_SOURCE_DIR}/source/Irrlicht")
@@ -552,11 +544,8 @@ endif()
 
 add_library(stkirrlicht STATIC ${IRRLICHT_SOURCES})
 
-target_link_libraries(stkirrlicht ${ZLIB_LIBRARY})
 
-if(NOT SERVER_ONLY)
-    target_link_libraries(stkirrlicht ${PNG_LIBRARY} ${JPEG_LIBRARY})
-endif()
+
 
 if(WIN32)
     target_link_libraries(stkirrlicht)
