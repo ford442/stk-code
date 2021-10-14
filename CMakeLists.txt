@@ -64,11 +64,15 @@ if(APPLE AND NOT IOS)
 	list(APPEND CMAKE_PREFIX_PATH /opt/homebrew/opt)
 	include_directories(/opt/homebrew/opt/openssl@1.1/include/)
 	include_directories(/opt/homebrew/opt/openssl@1.1/include/openssl/)
+	include_directories(/opt/homebrew/opt/freetype/include/freetype2/)
+	include_directories(/opt/homebrew/opt/harfbuzz/include/harfbuzz/)
     else()
 	set(ARCHFLAGS "${CMAKE_SYSTEM_PROCESSOR}")
 	list(APPEND CMAKE_PREFIX_PATH /usr/local/opt)
 	include_directories(/usr/local/opt/openssl@1.1/include/)
 	include_directories(/usr/local/opt/openssl@1.1/include/openssl/)
+	include_directories(/usr/local/opt/freetype/include/freetype2/)
+	include_directories(/usr/local/opt/harfbuzz/include/harfbuzz/)
     endif()
 endif()
 
@@ -108,7 +112,6 @@ if(UNIX AND NOT APPLE)
     option(USE_TSAN   "Build with Thread sanitizer" OFF)
     option(USE_LIBBFD "Use libbfd for crash reporting and leak check" OFF)
 endif()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -sUSE_JPEG=1 -sUSE_BULLET=1 -sUSE_FREETYPE=1 -sUSE_HARFBUZZ=1 -sUSE_OGG=1 -sUSE_SDL=2 -sUSE_LIBPNG=1 -sUSE_ZLIB=1 -sUSE_EGL=1 -sUSE_BZIP2=1")
 
 if(USE_ASAN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
@@ -193,6 +196,9 @@ if(UNIX AND NOT APPLE)
     endif()
 endif()
 
+# Build the Bullet physics library
+add_subdirectory("${PROJECT_SOURCE_DIR}/lib/bullet")
+include_directories(BEFORE "${PROJECT_SOURCE_DIR}/lib/bullet/src")
 
 # Build the DNS C library
 if(USE_DNS_C)
@@ -232,6 +238,11 @@ if(NOT SERVER_ONLY)
     include_directories(BEFORE "${PROJECT_SOURCE_DIR}/lib/graphics_engine/include")
 endif()
 
+if (NOT SERVER_ONLY)
+    # Add jpeg library
+    find_package(JPEG REQUIRED)
+    include_directories(${JPEG_INCLUDE_DIR})
+endif()
 
 if (BUILD_RECORDER)
     find_library(OPENGLRECORDER_LIBRARY NAMES openglrecorder libopenglrecorder PATHS "${PROJECT_SOURCE_DIR}/${DEPENDENCIES}/lib")
@@ -290,11 +301,21 @@ if(NOT SERVER_ONLY)
 endif()
 
 if (NOT SERVER_ONLY)
-
+    # SDL2
+    find_library(SDL2_LIBRARY NAMES SDL2 libSDL2)
+    find_path(SDL2_INCLUDEDIR NAMES SDL.h PATH_SUFFIXES SDL2 include/SDL2 include PATHS)
+    if (NOT SDL2_LIBRARY OR NOT SDL2_INCLUDEDIR)
+        message(FATAL_ERROR "SDL2 not found. "
+            "SDL2 is required to handle gamepad in SuperTuxKart.")
+    else()
+        include_directories("${SDL2_INCLUDEDIR}")
+        MESSAGE(STATUS "Use system SDL2: ${SDL2_LIBRARY}")
+    endif()
+    # DirectFB. Necessary if system SDL2 is built with DirectFB support.
     find_path(DIRECTFB_INCLUDEDIR NAMES directfb.h directfb++.h PATH_SUFFIXES directfb include/directfb include PATHS)
     if (DIRECTFB_INCLUDEDIR)
         include_directories("${DIRECTFB_INCLUDEDIR}")
-        message(STATUS "Adding DirectFB include directories for DirectFB support in S-D-L2")
+        message(STATUS "Adding DirectFB include directories for DirectFB support in SDL2")
     endif()
 endif()
 
@@ -378,16 +399,39 @@ if(NOT SERVER_ONLY)
         include_directories(${OPENAL_INCLUDE_DIR})
     endif()
 
+    # OggVorbis
+    find_package(OggVorbis REQUIRED)
+    include_directories(${OGGVORBIS_INCLUDE_DIRS})
 
     add_definitions(-DENABLE_SOUND)
 endif()
 
+# Text handling in STK (We use freetype, harfbuzz and SheenBidifor i18n text handling)
 if (NOT SERVER_ONLY)
     # SheenBidi
     add_subdirectory("${PROJECT_SOURCE_DIR}/lib/sheenbidi")
     include_directories(BEFORE "${PROJECT_SOURCE_DIR}/lib/sheenbidi/Headers")
     SET(SHEENBIDI_LIBRARY sheenbidi)
- 
+
+    # Freetype
+    find_package(Freetype)
+    if(FREETYPE_FOUND)
+        include_directories(${FREETYPE_INCLUDE_DIRS})
+    else()
+        message(FATAL_ERROR "Freetype not found. "
+            "Freetype is required to display characters in SuperTuxKart.")
+    endif()
+
+    # Harfbuzz
+    find_library(HARFBUZZ_LIBRARY NAMES harfbuzz libharfbuzz)
+    find_path(HARFBUZZ_INCLUDEDIR NAMES harfbuzz/hb.h hb.h PATHS)
+    if (NOT HARFBUZZ_LIBRARY OR NOT HARFBUZZ_INCLUDEDIR)
+        message(FATAL_ERROR "Harfbuzz not found. "
+            "Harfbuzz is required to display characters in SuperTuxKart.")
+    else()
+        include_directories("${HARFBUZZ_INCLUDEDIR}")
+        MESSAGE(STATUS "Use system harfbuzz: ${HARFBUZZ_LIBRARY}")
+    endif()
 endif()
 
 if(USE_LIBBFD)
@@ -592,12 +636,25 @@ target_link_libraries(supertuxkart
     )
 
 if (USE_SWITCH)
+  include(cmake/FindEGL.cmake)
   find_library(NX_LIBRARY NAMES nx libnx REQUIRED)
   find_library(DRM_LIBRARY NAMES drm_nouveau libdrm_nouveau REQUIRED)
   find_library(GLAPI_LIBRARY NAMES glapi libglapi REQUIRED)
+  find_library(ZLIB_LIBRARY NAMES z libz REQUIRED)
+  find_library(PNG_LIBRARY NAMES png libpng REQUIRED)
+  find_library(BZ2_LIBRARY NAMES bz2 libbz2 REQUIRED)
   target_link_libraries(supertuxkart
     ${NX_LIBRARY}
+    ${ZLIB_LIBRARY}
+    ${FREETYPE_LIBRARIES}
+    -logg
+    -lvorbis
+    ${SDL2_LIBRARY}
+    ${PNG_LIBRARY}
+    ${BZ2_LIBRARY}
+    ${HARFBUZZ_LIBRARY}
     ${OPENAL_LIBRARY}
+    ${EGL_LIBRARY}
     ${DRM_LIBRARY}
     ${GLAPI_LIBRARY}
     ${NX_LIBRARY}
@@ -648,9 +705,14 @@ if(NOT SERVER_ONLY)
 
     target_link_libraries(supertuxkart
         ${SQUISH_LIBRARY}
+        ${JPEG_LIBRARIES}
+        ${OGGVORBIS_LIBRARIES}
+        ${FREETYPE_LIBRARIES}
+        ${HARFBUZZ_LIBRARY}
         ${SHEENBIDI_LIBRARY}
         graphics_utils
         graphics_engine
+        ${SDL2_LIBRARY}
         tinygettext)
 endif()
 
@@ -673,6 +735,7 @@ if(BUILD_RECORDER)
     target_link_libraries(supertuxkart ${OPENGLRECORDER_LIBRARY})
 endif()
 
+# FreeBSD does not search in /usr/local/lib, but at least Freetype is installed there :(
 if(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
     SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/usr/local/lib")
 endif()
